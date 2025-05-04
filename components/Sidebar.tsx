@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { auth } from "@/lib/firebase";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 const Sidebar = () => {
   const [isOpen, setIsOpen] = useState(true); // Handle sidebar visibility
@@ -15,6 +15,12 @@ const Sidebar = () => {
     await auth.signOut();
     router.push("/auth/login");
   };
+
+  const pathname = usePathname();
+
+  if (pathname.includes("/auth")) {
+    return null;
+  }
 
   return (
     <div
