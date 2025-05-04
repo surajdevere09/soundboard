@@ -141,6 +141,58 @@ export default function RoomPage() {
     return []; // prevent auto upload
   };
 
+  const handlePlayPause = (loopId: string) => {
+    const audio = audioRefs.current[loopId];
+    if (!audio) return;
+
+    if (audio.paused) {
+      audio.play();
+      setLoops((prevLoops) =>
+        prevLoops.map((loop) =>
+          loop.id === loopId ? { ...loop, isPlaying: true } : loop
+        )
+      );
+    } else {
+      audio.pause();
+      setLoops((prevLoops) =>
+        prevLoops.map((loop) =>
+          loop.id === loopId ? { ...loop, isPlaying: false } : loop
+        )
+      );
+    }
+  };
+
+  const handleVolumeChange = (loopId: string, newVolume: number) => {
+    const audio = audioRefs.current[loopId];
+    if (!audio) return;
+
+    audio.volume = newVolume; // Set the volume of the audio element
+    setLoops((prevLoops) =>
+      prevLoops.map((loop) =>
+        loop.id === loopId ? { ...loop, volume: newVolume } : loop
+      )
+    );
+  };
+
+  useEffect(() => {
+    if (!playing || loops.length === 0) return;
+
+    const playAll = () => {
+      loops.forEach((loop) => {
+        const audio = audioRefs.current[loop.id];
+        if (audio && loop.isActive && loop.isPlaying && audio.readyState >= 2) {
+          audio.currentTime = 0;
+          audio.play();
+        }
+      });
+    };
+
+    playAll(); // Play immediately
+    const interval = setInterval(playAll, 20000); // Play every 20s
+
+    return () => clearInterval(interval);
+  }, [playing, loops]);
+
   const toggleLoopActive = async (loopId: string, current: boolean) => {
     const docRef = doc(db, "rooms", id as string, "loops", loopId);
     await updateDoc(docRef, { isActive: !current });
@@ -204,7 +256,7 @@ export default function RoomPage() {
         <p>No loops yet. Start recording or upload!</p>
       ) : (
         <ul className="space-y-4">
-          {loops.map((loop) => (
+          {/* {loops.map((loop) => (
             <li key={loop.id} className="border p-4 rounded">
               <div className="font-medium">{loop.name}</div>
               <div className="text-sm text-gray-600">By: {loop.userEmail}</div>
@@ -225,7 +277,74 @@ export default function RoomPage() {
                 {loop.isActive ? "Mute" : "Unmute"}
               </button>
             </li>
-          ))}
+          ))} */}
+          {loops.length === 0 ? (
+            <p>No loops yet. Start recording or upload!</p>
+          ) : (
+            <ul className="space-y-4">
+              {loops.map((loop) => (
+                <li key={loop.id} className="border p-4 rounded">
+                  <div className="font-medium">{loop.name}</div>
+                  <div className="text-sm text-gray-600">
+                    By: {loop.userEmail}
+                  </div>
+                  {loop.audioUrl ? (
+                    <div>
+                      <audio
+                        controls
+                        src={loop.audioUrl}
+                        ref={(el) => (audioRefs.current[loop.id] = el) as any}
+                        className="mt-2 w-full"
+                        style={{
+                          opacity: loop.isActive ? 1 : 0.5, // Dim the audio if not active
+                        }}
+                      />
+                      <div className="flex space-x-4 mt-2">
+                        <button
+                          onClick={() => handlePlayPause(loop.id)}
+                          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+                        >
+                          {loop.isPlaying ? "⏸ Pause" : "▶️ Play"}
+                        </button>
+                      </div>
+
+                      <div className="mt-2">
+                        <label
+                          htmlFor={`volume-${loop.id}`}
+                          className="block text-sm font-medium text-gray-700"
+                        >
+                          Volume
+                        </label>
+                        <input
+                          id={`volume-${loop.id}`}
+                          type="range"
+                          min="0"
+                          max="1"
+                          step="0.01"
+                          value={loop.volume}
+                          onChange={(e) =>
+                            handleVolumeChange(
+                              loop.id,
+                              parseFloat(e.target.value)
+                            )
+                          }
+                          className="w-full mt-2"
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-red-500 mt-2">No audio</p>
+                  )}
+                  <button
+                    onClick={() => toggleLoopActive(loop.id, loop.isActive)}
+                    className="mt-2 text-sm text-blue-600 underline"
+                  >
+                    {loop.isActive ? "Mute" : "Unmute"}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </ul>
       )}
     </div>
