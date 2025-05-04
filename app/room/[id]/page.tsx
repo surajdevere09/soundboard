@@ -16,6 +16,7 @@ import {
   addDoc,
   serverTimestamp,
   updateDoc,
+  deleteDoc,
 } from "firebase/firestore";
 
 export default function RoomPage() {
@@ -198,6 +199,14 @@ export default function RoomPage() {
     await updateDoc(docRef, { isActive: !current });
   };
 
+  const handleDeleteLoop = async (loopId: string) => {
+    const confirmDelete = confirm("Are you sure you want to delete this loop?");
+    if (!confirmDelete) return;
+
+    const docRef = doc(db, "rooms", id as string, "loops", loopId);
+    await deleteDoc(docRef);
+  };
+
   if (!room) return <div>Loading room...</div>;
 
   return (
@@ -340,6 +349,19 @@ export default function RoomPage() {
                     className="mt-2 text-sm text-blue-600 underline"
                   >
                     {loop.isActive ? "Mute" : "Unmute"}
+                  </button>
+                  {/* <button
+                    onClick={() => toggleLoopActive(loop.id, loop.isActive)}
+                    className="mt-2 mr-2 text-sm text-blue-600 underline"
+                  >
+                    {loop.isActive ? "Mute" : "Unmute"}
+                  </button> */}
+
+                  <button
+                    onClick={() => handleDeleteLoop(loop.id)}
+                    className="mt-2 text-sm text-red-600 underline"
+                  >
+                    Delete
                   </button>
                 </li>
               ))}
