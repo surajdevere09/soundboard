@@ -9,10 +9,12 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@uploadthing/react": "^7.3.0",
     "firebase": "^11.6.1",
     "next": "15.3.1",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "uploadthing": "^7.6.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
