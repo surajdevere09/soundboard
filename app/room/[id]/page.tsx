@@ -1,9 +1,9 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable @typescript-eslint/ban-ts-comment */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-import { useEffect, useState } from "react";
-import { generateReactHelpers } from "@uploadthing/react";
+import { useEffect, useRef, useState } from "react";
+import { generateReactHelpers, UploadButton } from "@uploadthing/react";
 import type { OurFileRouter } from "@/app/api/uploadthing/core";
 import { useParams } from "next/navigation";
 import { db, auth } from "@/lib/firebase";
@@ -12,21 +12,24 @@ import {
   getDoc,
   collection,
   query,
-  where,
-  getDocs,
   onSnapshot,
   addDoc,
   serverTimestamp,
+  updateDoc,
 } from "firebase/firestore";
-// const { useUploadThing, uploadFiles } = generateReactHelpers<OurFileRouter>();
-
-import { UploadButton } from "@/utils/uploadthing"; // Import UploadButton
 
 export default function RoomPage() {
+  const { useUploadThing } = generateReactHelpers<OurFileRouter>();
   const { id } = useParams();
   const [room, setRoom] = useState<any>(null);
   const [loops, setLoops] = useState<any[]>([]);
   const [recording, setRecording] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [previewFile, setPreviewFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const audioRefs = useRef<Record<string, HTMLAudioElement | null>>({});
+
+  const { startUpload } = useUploadThing("audioUploader");
 
   // Fetch room info
   useEffect(() => {
@@ -41,7 +44,7 @@ export default function RoomPage() {
     fetchRoom();
   }, [id]);
 
-  // Poll for loops every 5 seconds (collaboration sync)
+  // Listen for loop changes
   useEffect(() => {
     if (!id) return;
     const loopsQuery = query(collection(db, "rooms", id as string, "loops"));
@@ -55,8 +58,30 @@ export default function RoomPage() {
     return () => unsubscribe();
   }, [id]);
 
-  // Handle audio upload
-  const handleAudioUpload = async (fileUrl: string) => {
+  // Sync playback every 20s
+  useEffect(() => {
+    if (!playing || loops.length === 0) return;
+
+    const playAll = () => {
+      loops.forEach((loop) => {
+        const audio = audioRefs.current[loop.id];
+        if (audio && loop.isActive && audio.readyState >= 2) {
+          audio.currentTime = 0;
+          audio.play();
+        }
+      });
+    };
+
+    playAll(); // Play immediately
+    const interval = setInterval(playAll, 20000); // Play every 20s
+
+    return () => clearInterval(interval);
+  }, [playing, loops]);
+
+  const handleAudioUpload = async (res: any) => {
+    const fileUrl = res?.[0]?.ufsUrl;
+    if (!fileUrl) return;
+
     const user = auth.currentUser;
     if (!user) return;
 
@@ -65,10 +90,60 @@ export default function RoomPage() {
       userEmail: user.email,
       createdAt: serverTimestamp(),
       name: `Loop by ${user.email}`,
-      audioUrl: fileUrl, // Store the URL after upload
+      audioUrl: fileUrl,
       volume: 1,
       isActive: true,
     });
+  };
+
+  const handleRecordLoop = async () => {
+    const user = auth.currentUser;
+    if (!user || !navigator.mediaDevices) return;
+
+    setRecording(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      const chunks: Blob[] = [];
+
+      mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
+
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(chunks, { type: "audio/webm" });
+        const file = new File([blob], "recording.webm", { type: "audio/webm" });
+        setPreviewFile(file);
+        setPreviewUrl(URL.createObjectURL(file));
+        setRecording(false);
+      };
+
+      mediaRecorder.start();
+      setTimeout(() => mediaRecorder.stop(), 20000); // record 20s max
+    } catch (err) {
+      console.error("Recording error", err);
+      setRecording(false);
+    }
+  };
+
+  const handleManualUpload = async () => {
+    if (!previewFile) return;
+    const res = await startUpload([previewFile]);
+    await handleAudioUpload(res);
+    setPreviewFile(null);
+    setPreviewUrl(null);
+  };
+
+  const handleFileSelect = (files: File[]) => {
+    const file = files[0];
+    if (file) {
+      setPreviewFile(file);
+      setPreviewUrl(URL.createObjectURL(file));
+    }
+    return []; // prevent auto upload
+  };
+
+  const toggleLoopActive = async (loopId: string, current: boolean) => {
+    const docRef = doc(db, "rooms", id as string, "loops", loopId);
+    await updateDoc(docRef, { isActive: !current });
   };
 
   if (!room) return <div>Loading room...</div>;
@@ -81,23 +156,52 @@ export default function RoomPage() {
         {room.isPublic ? "Public" : "Private"}
       </p>
 
-      <div className="my-6">
+      <div className="my-6 space-x-4">
+        <button
+          onClick={handleRecordLoop}
+          disabled={recording}
+          className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+        >
+          {recording ? "Recording..." : "🎙️ Record 20s"}
+        </button>
+
+        {/* File selector (no auto-upload) */}
+        {/* @ts-ignore */}
         <UploadButton
-          endpoint="audioUploader"
-          onClientUploadComplete={(res: any) => {
-            if (res?.fileUrl) {
-              handleAudioUpload(res?.fileUrl); // Call to save file URL in Firestore
-            }
-          }}
-          onUploadError={(error: Error) => {
-            alert(`ERROR! ${error.message}`);
-          }}
+          endpoint={"audioUploader"}
+          onBeforeUploadBegin={(files: any) =>
+            handleFileSelect(files as File[])
+          }
+          onUploadError={(error: Error) =>
+            console.log(`ERROR! ${error.message}`)
+          }
         />
+
+        <button
+          onClick={() => setPlaying((prev) => !prev)}
+          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+        >
+          {playing ? "⏸ Stop Loop" : "▶️ Start Loop"}
+        </button>
       </div>
 
-      <h2 className="text-xl font-semibold mb-2">Loops</h2>
+      {/* Audio Preview & Upload Button */}
+      {previewUrl && (
+        <div className="mt-4">
+          <h3 className="font-medium mb-1">Preview</h3>
+          <audio controls src={previewUrl} className="w-full" />
+          <button
+            onClick={handleManualUpload}
+            className="mt-2 bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700"
+          >
+            Upload Preview
+          </button>
+        </div>
+      )}
+
+      <h2 className="text-xl font-semibold mb-2 mt-6">Loops</h2>
       {loops.length === 0 ? (
-        <p>No loops yet. Start recording!</p>
+        <p>No loops yet. Start recording or upload!</p>
       ) : (
         <ul className="space-y-4">
           {loops.map((loop) => (
@@ -105,12 +209,21 @@ export default function RoomPage() {
               <div className="font-medium">{loop.name}</div>
               <div className="text-sm text-gray-600">By: {loop.userEmail}</div>
               {loop.audioUrl ? (
-                <audio controls src={loop.audioUrl} className="mt-2 w-full" />
+                <audio
+                  controls
+                  src={loop.audioUrl}
+                  ref={(el) => (audioRefs.current[loop.id] = el)}
+                  className="mt-2 w-full"
+                />
               ) : (
-                <p className="text-sm text-red-500 mt-2">
-                  Audio not yet uploaded
-                </p>
+                <p className="text-red-500 mt-2">No audio</p>
               )}
+              <button
+                onClick={() => toggleLoopActive(loop.id, loop.isActive)}
+                className="mt-2 text-sm text-blue-600 underline"
+              >
+                {loop.isActive ? "Mute" : "Unmute"}
+              </button>
             </li>
           ))}
         </ul>

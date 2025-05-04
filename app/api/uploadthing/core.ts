@@ -12,7 +12,7 @@ const auth = (req: Request) => ({ id: "fakeId" }); // Replace with your actual u
 export const ourFileRouter = {
   audioUploader: f({
     audio: {
-      maxFileSize: "16MB", // Adjust max file size for audio
+      maxFileSize: "8MB", // Adjust max file size for audio
       maxFileCount: 1,
     },
   })
